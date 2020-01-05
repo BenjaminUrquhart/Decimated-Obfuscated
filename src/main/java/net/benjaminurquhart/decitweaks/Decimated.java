@@ -16,6 +16,7 @@ import cpw.mods.fml.relauncher.Side;
 
 import net.minecraftforge.common.MinecraftForge;
 
+import java.io.File;
 import java.lang.reflect.*;
 import java.util.Collections;
 import java.util.HashMap;
@@ -32,7 +33,7 @@ import com.google.common.reflect.ClassPath;
 public class Decimated {
 	
 	public static final String MODID = "decimated-obf";
-	public static final String VERSION = "0.0.2a";
+	public static final String VERSION = "0.0.3a";
 	
 	@Instance(MODID)
 	public static Decimated instance;
@@ -46,10 +47,22 @@ public class Decimated {
 	private boolean server;
 	private Unsafe unsafe;
 	
+	private Object deciInstance;
+	private File deciFile;
+	
 	public Decimated() {
 		this.packageCache = new HashMap<>();
 	}
 	
+	public String getDeciPackage() {
+		return deciPackage;
+	}
+	public Object getDeciInstance() {
+		return deciInstance;
+	}
+	public File getDeciFile() {
+		return deciFile;
+	}
 	public List<ModContainer> getOtherMods() {
 		return Collections.unmodifiableList(otherMods);
 	}
@@ -88,20 +101,22 @@ public class Decimated {
 		packageCache.put(pkg, classes);
 		return classes;
 	}
-	@SuppressWarnings("restriction")
 	@EventHandler
 	public void preInit(FMLPreInitializationEvent event) {
 		server = event.getSide() == Side.SERVER;
 		if(server) {
 			err("This is a server environment!");
+			Loader.instance().runtimeDisableMod(MODID);
 			return;
 		}
 		try {
 			for(ModContainer container : Loader.instance().getModList()) {
 				if(container.getModId().equals("deci")) {
-					deciPackage = container.getMod().getClass().getPackage().getName();
+					deciInstance = container.getMod();
+					deciPackage = deciInstance.getClass().getPackage().getName();
 					deciPackage = deciPackage.split("\\.")[0];
 					log("Decimation package: " + deciPackage);
+					deciFile = container.getSource();
 					break;
 				}
 			}
@@ -120,53 +135,43 @@ public class Decimated {
 			unsafeField.setAccessible(true);
 			unsafe = (Unsafe) unsafeField.get(null);
 			
-			Field field = null;
+			SimpleNetworkWrapper real = null;
 			Set<Class<?>> classes = this.getAllClassesInPackage(deciPackage);
+			FakeNetworkWrapper wrapper = (FakeNetworkWrapper) unsafe.allocateInstance(FakeNetworkWrapper.class);
 			log("Found "+classes.size()+" potential classes. Scanning for field...");
 			
+			int fieldCount = 0;
 			for(Class<?> clazz : classes) {
-				for(Field f : clazz.getDeclaredFields()) {
-					f.setAccessible(true);
-					if(f.getType().equals(SimpleNetworkWrapper.class)) {
-						log("Found SimpleNetworkWrapper field "+f.getDeclaringClass().getName()+"."+f.getName());
-						if((f.getModifiers() & Modifier.STATIC) != Modifier.STATIC) {
-							log("It's an instance field...");
+				for(Field field : clazz.getDeclaredFields()) {
+					field.setAccessible(true);
+					if(field.getType().equals(SimpleNetworkWrapper.class)) {
+						if((field.getModifiers() & Modifier.STATIC) != Modifier.STATIC) {
+							log("Skipping instance field "+field.getDeclaringClass().getName()+"."+field.getName());
 						}
 						else {
-							log("It's a static field! Breaking!");
-							field = f;
+							log("Found static field "+field.getDeclaringClass().getName()+"."+field.getName());
+							makeUnfinal(field);
+							real = (SimpleNetworkWrapper) field.get(null);
+							if(real == null) {
+								log("Field was null, continuing...");
+								continue;
+							}
+							else {
+								wrapper.setChannel(real);
+							}
+							fieldCount++;
+							field.set(null, wrapper);
 							break;
 						}
 					}
 				}
-				if(field != null) {
-					break;
-				}
 			}
-			if(field == null) {
-				throw new IllegalStateException("Failed to find static field!");
-			}
-			makeUnfinal(field);
-			
-			FakeNetworkWrapper wrapper = (FakeNetworkWrapper) unsafe.allocateInstance(FakeNetworkWrapper.class);
-			SimpleNetworkWrapper real = (SimpleNetworkWrapper) field.get(null);
-			
-			if(real == null) {
-				throw new IllegalStateException("Field was not populated!");
-			}
-			wrapper.setChannel(real);
-			
-			field.set(null, wrapper);
-			log("Done injecting! Verifying...");
-			
-			if(field.get(null) instanceof FakeNetworkWrapper) {
-				log("Verified! Class name is " + wrapper.getClass().getName());
-				networking = true;
+			if(fieldCount == 0) {
+				throw new IllegalStateException("Failed to find any static fields!");
 			}
 			else {
-				err("Failed!");
-				err("Expected: " + wrapper.getClass().getName());
-				err("Found:    " + real.getClass().getName());
+				log("Inserted wrapper into "+fieldCount+" static field"+(fieldCount<2?"":"s"));
+				networking = true;
 			}
 		}
 		catch(IllegalStateException e) {
@@ -182,7 +187,7 @@ public class Decimated {
 		}
 		else {
 			err("Failed to disable anticheat!");
-			throw new IllegalStateException();
+			throw new IllegalStateException("Failed to disable anticheat!");
 			//err("You will be unable to join servers!");
 			//err("Please refer to the exception(s) printed above for details.");
 		}
@@ -211,16 +216,55 @@ public class Decimated {
 						log("Found static kryo client field "+field.getDeclaringClass().getName()+"."+field.getName());
 						client = (Client) field.get(null);
 						client.close();
+						makeUnfinal(field);
 						field.set(null, conn);
 						count++;
 					}
 				}
 			}
 			if(count > 0) {
-				log("Inserted kryo client into "+count+" field"+(count != 1 ? "s" : ""));
+				log("Inserted kryo client into "+count+" static field"+(count != 1 ? "s" : ""));
 			}
 			else {
-				err("Failed to locate kryo client!");
+				err("Failed to locate static kryo client!");
+				err("Attempting to search instance fields...");
+				
+				Object tmp;
+				Set<Object> checked = new HashSet<>();
+				for(Field field : deciInstance.getClass().getDeclaredFields()) {
+					field.setAccessible(true);
+					if(field.getType().equals(Client.class) && (field.getModifiers() & Modifier.STATIC) == 0) {
+						log("Found instance kryo client field "+field.getDeclaringClass().getName()+"."+field.getName());
+						client = (Client) field.get(deciInstance);
+						if(client != null) {
+							client.close();
+						}
+						makeUnfinal(field);
+						field.set(deciInstance, conn);
+						count++;
+					}
+					else if((tmp = field.get(deciInstance)) != null && checked.add(tmp)){
+						for(Field f : field.getType().getDeclaredFields()) {
+							f.setAccessible(true);
+							if(f.getType().equals(Client.class) && (field.getModifiers() & Modifier.STATIC) == 0) {
+								log("Found instance kryo client field "+f.getDeclaringClass().getName()+"."+f.getName());
+								client = (Client) field.get(tmp);
+								if(client != null) {
+									client.close();
+								}
+								makeUnfinal(f);
+								f.set(tmp, conn);
+								count++;
+							}
+						}
+					}
+				}
+				if(count > 0) {
+					log("Inserted kryo client into "+count+" instance field"+(count != 1 ? "s" : ""));
+				}
+				else {
+					err("Failed to locate kryo client!");
+				}
 			}
 		} 
 		catch (Exception e) {

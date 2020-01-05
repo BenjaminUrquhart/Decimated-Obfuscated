@@ -1,0 +1,16 @@
+[
+{
+  "modid": "decimated-obf",
+  "name": "Decimated",
+  "description": "A PoC that disables the Decimation anticheat system",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["_creepersbane"],
+  "credits": "Natan (natanbc on GitHub) for the ASM, Box & Circuit for the support",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

@@ -1,6 +1,7 @@
 package net.benjaminurquhart.decitweaks;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -42,10 +43,30 @@ public class FakeMessageClientListener extends Listener {
 			Decimated.err(e.toString());
 		}
 	}
+	@SuppressWarnings("unchecked")
 	private void printServerList(Object object) {
 		Response_FromServer_ServerList serverList = (Response_FromServer_ServerList) object;
+		List<ObjectServer> servers = null;
+		try {
+			Field field = null;
+			for(Field f : Response_FromServer_ServerList.class.getDeclaredFields()) {
+				if(f.getType() == ArrayList.class) {
+					field = f;
+					break;
+				}
+			}
+			field.setAccessible(true);
+			servers = (List<ObjectServer>) field.get(serverList);
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+			return;
+		}
+		if(servers == null) {
+			Decimated.err("Server list was null!");
+			return;
+		}
 		Decimated.debug("Servers:");
-		List<ObjectServer> servers = serverList.getServerObjects();
 		for(ObjectServer server : servers) {
 			Decimated.debug("--------------------------------------------------------------------");
 			Decimated.debug("Name:        " + sanitize(server.getServerName()));

@@ -1,10 +1,14 @@
 package net.benjaminurquhart.decitweaks;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
@@ -19,18 +23,74 @@ public class FakeNetworkWrapper extends SimpleNetworkWrapper {
 	private SimpleNetworkWrapper real;
 	private String cheatingResponseClassName;
 	
-	private static final List<String> HASHES = Arrays.asList(
-			"8BCD9D83DE001A0591F498105F369F070C47D2C9192774D5A5B69F646E44FAB4",
-			"1DC0F1FE2614C5354292473E44649F90508AE069D249550EE4D9CE794EA8F0BF",
-			"CC5A3C4D7B169CC0B0899F8304360B38E69D34311546E1B36631FB2C6A44F742",
-			"CC07072E8BCA66F527A981D3C26A980FF127221B7E4B264D2056455D912513E0",
-			"415CBA487EA5EDDCA981C6A00A5426236F8DF36C635F5808ABA227AD96D1B478",
-			"1CE3A1AB348AAC5CFE70FBC60496146C594FAA21BB1BC5FC73DFB16432108940",
-			"FA5482F06F9D7B8538D087E66C163C04AFD85F7669FF63FF330E1045503D6DA4",
-			"11E974AC0A0BBE1ED63EB4D0F8ECCE5245E77DDE8AEFD78EE3C95F49B3C3C31D",
-			"A71C6396AA3152773C1DB3444EB0667E22C440EE76552306A617CACD11277840",
-			"59FCB6AA78F9604A31355EAFF8CB72CF2AEB0BCFDFD4EDD6D841637C14A9AB4A",
-			"534313028FE05F39CFFEE217F385E222CF17ED258A95292D25982248F20D0193");
+	private static final List<String> HASHES = new ArrayList<>();
+	
+	static {
+		try {
+			Decimated.log("Calculating SHA-256 of deci jarfile...");
+			List<String> tmp = new ArrayList<>();
+			byte[] buff = new byte[1024];
+			File deciFile = Decimated.instance.getDeciFile();
+			FileInputStream stream = new FileInputStream(deciFile);
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			int i = 0;
+			do {
+				i = stream.read(buff);
+				if(i > 0) {
+					digest.update(buff, 0, i);
+				}
+			}
+			while(i > 0);
+			stream.close();
+			String hash = "";
+			for(byte b : digest.digest()) {
+				hash += Integer.toString((b & 0xFF) + 256, 16).substring(1);
+			}
+			hash = hash.toUpperCase();
+			Decimated.log(deciFile.getName()+" -> "+hash);
+			Decimated.log("Finding master hash array...");
+			Set<Class<?>> classes = Decimated.instance.getAllClassesInPackage(Decimated.instance.getDeciPackage());
+			boolean foundProcess = false;
+			boolean foundArray = false;
+			classSearch:
+			for(Class<?> clazz : classes) {
+				foundProcess = foundArray = false;
+				for(Field field : clazz.getDeclaredFields()) {
+					if(Modifier.isStatic(field.getModifiers()) && field.getType().equals(String[].class)) {
+						field.setAccessible(true);
+						Decimated.log("Found candidate field "+field.getName()+" in class "+clazz.getName());
+						if(field.get(null) == null) {
+							Decimated.log("Field contains null, skipping...");
+							continue;
+						}
+						tmp = Arrays.asList((String[])field.get(null));
+						Decimated.log("Contents:\n"+tmp);
+						if(tmp.contains(hash)) {
+							Decimated.log("Found master hash array in class "+clazz.getName());
+							HASHES.addAll(tmp);
+							break classSearch;
+						}
+						foundArray = true;
+					}
+					if(field.getType().equals(Process.class)) {
+						foundProcess = true;
+					}
+					if(foundProcess && foundArray) {
+						Decimated.log("Found master hash array in class "+clazz.getName()+" with safety override");
+						HASHES.addAll(tmp);
+						break classSearch;
+					}
+				}
+			}
+			if(HASHES.isEmpty()) {
+				Decimated.err("Failed to find hash list. Inserting known hash...");
+				HASHES.add(hash);
+			}
+		} 
+		catch (Exception e) {
+			throw new IllegalStateException(e);
+		}
+	}
 	
 	private Field list;
 	
@@ -62,22 +122,12 @@ public class FakeNetworkWrapper extends SimpleNetworkWrapper {
 		try {
 			FakeClientNetworkConnection.printStuff(message);
 	    	if(this.isCheatingResponse(message)) {
-	    		Decimated.log("Intercepted cheating response");
+	    		Decimated.log("Intercepted cheating response (Class: "+cheatingResponseClassName+")");
 	    		List<String> hashes = (List<String>) list.get(message);
-	    		Decimated.log("Hashes:");
-	    		for(String hash : hashes) {
-	    			Decimated.log(hash);
-	    		}
-	    		Decimated.log("Total: "+hashes.size());
-	    		if(hashes.isEmpty()) {
-		    		hashes.addAll(HASHES);
-	    		}
-	    		else {
-		    		String hash = hashes.get(hashes.size()-1);
-		    		Decimated.log("Keeping hash "+hash);
-		    		hashes.clear();
-		    		hashes.add(hash);
-	    		}
+	    		Decimated.log("Replacing hash list with whitelist...");
+	    		hashes.clear();
+	    		hashes.addAll(HASHES);
+	    		Decimated.log("Done");
 	    	}
 		}
 		catch(Exception e) {
