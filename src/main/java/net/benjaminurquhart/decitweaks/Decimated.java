@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 import com.esotericsoftware.kryonet.Client;
 import com.google.common.reflect.ClassPath;
 
+//import net.decimation.mod.utilities.net.client_network.api.objects.ObjectRegistry;
+
 @Mod(modid=Decimated.MODID, version=Decimated.VERSION, name="Decimated", dependencies="required-after:deci")
 public class Decimated {
 	
@@ -209,6 +211,7 @@ public class Decimated {
 			Client client = null;
 			FakeClientNetworkConnection conn = new FakeClientNetworkConnection();
 			Set<Class<?>> classes = this.getAllClassesInPackage(deciPackage);
+			//ObjectRegistry.registerObjects(conn.getKryo());
 			for(Class<?> clazz : classes) {
 				for(Field field : clazz.getDeclaredFields()) {
 					field.setAccessible(true);
@@ -223,7 +226,7 @@ public class Decimated {
 				}
 			}
 			if(count > 0) {
-				log("Inserted kryo client into "+count+" static field"+(count != 1 ? "s" : ""));
+				log("Inserted kryo client into "+count+" static field"+(count<2?"":"s"));
 			}
 			else {
 				err("Failed to locate static kryo client!");
@@ -246,9 +249,9 @@ public class Decimated {
 					else if((tmp = field.get(deciInstance)) != null && checked.add(tmp)){
 						for(Field f : field.getType().getDeclaredFields()) {
 							f.setAccessible(true);
-							if(f.getType().equals(Client.class) && (field.getModifiers() & Modifier.STATIC) == 0) {
+							if(f.getType().equals(Client.class) && (f.getModifiers() & Modifier.STATIC) == 0) {
 								log("Found instance kryo client field "+f.getDeclaringClass().getName()+"."+f.getName());
-								client = (Client) field.get(tmp);
+								client = (Client) f.get(tmp);
 								if(client != null) {
 									client.close();
 								}
@@ -260,7 +263,7 @@ public class Decimated {
 					}
 				}
 				if(count > 0) {
-					log("Inserted kryo client into "+count+" instance field"+(count != 1 ? "s" : ""));
+					log("Inserted kryo client into "+count+" instance field"+(count<2?"":"s"));
 				}
 				else {
 					err("Failed to locate kryo client!");

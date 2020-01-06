@@ -21,7 +21,6 @@ public class ClientServerJoinListener {
 			notificationMethod = Class.forName("net.decimation.mod.a.b").getDeclaredMethod("a", String.class);
 		}
 		catch(Exception e) {
-			e.printStackTrace();
 			disabled = true;
 		}
 	}
