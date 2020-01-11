@@ -21,7 +21,7 @@ apply plugin: 'java'
 sourceCompatibility = '1.8'
 targetCompatibility = '1.8'
 
-version = "0.0.3a"
+version = "0.0.4a"
 group= "net.benjaminurquhart.decitweaks" // http://maven.apache.org/guides/mini/guide-naming-conventions.html
 archivesBaseName = "decimated"
 

@@ -23,7 +23,7 @@ public class FakeNetworkWrapper extends SimpleNetworkWrapper {
 	private SimpleNetworkWrapper real;
 	private String cheatingResponseClassName;
 	
-	private static final List<String> HASHES = new ArrayList<>();
+	public static final List<String> HASHES = new ArrayList<>();
 	
 	static {
 		try {
@@ -93,11 +93,18 @@ public class FakeNetworkWrapper extends SimpleNetworkWrapper {
 	}
 	
 	private Field list;
+	private IMessage latestAnticheatResponse;
 	
 	public FakeNetworkWrapper() {
 		super("ctx");
 	}
 	
+	public Field getHashListField() {
+		return list;
+	}
+	public IMessage getLatestAnticheatResponse() {
+		return latestAnticheatResponse;
+	}
 	protected void setChannel(SimpleNetworkWrapper channel) {
 		this.real = channel;
 	}
@@ -122,6 +129,7 @@ public class FakeNetworkWrapper extends SimpleNetworkWrapper {
 		try {
 			FakeClientNetworkConnection.printStuff(message);
 	    	if(this.isCheatingResponse(message)) {
+	    		latestAnticheatResponse = message;
 	    		Decimated.log("Intercepted cheating response (Class: "+cheatingResponseClassName+")");
 	    		List<String> hashes = (List<String>) list.get(message);
 	    		Decimated.log("Replacing hash list with whitelist...");

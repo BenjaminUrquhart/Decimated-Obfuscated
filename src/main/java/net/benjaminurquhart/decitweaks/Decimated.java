@@ -35,7 +35,7 @@ import com.google.common.reflect.ClassPath;
 public class Decimated {
 	
 	public static final String MODID = "decimated-obf";
-	public static final String VERSION = "0.0.3a";
+	public static final String VERSION = "0.0.4a";
 	
 	@Instance(MODID)
 	public static Decimated instance;
@@ -52,10 +52,15 @@ public class Decimated {
 	private Object deciInstance;
 	private File deciFile;
 	
+	private FakeNetworkWrapper wrapper;
+	
 	public Decimated() {
 		this.packageCache = new HashMap<>();
 	}
 	
+	public FakeNetworkWrapper getFakeDeciNetworkWrapper() {
+		return wrapper;
+	}
 	public String getDeciPackage() {
 		return deciPackage;
 	}
@@ -137,9 +142,10 @@ public class Decimated {
 			unsafeField.setAccessible(true);
 			unsafe = (Unsafe) unsafeField.get(null);
 			
+			wrapper = (FakeNetworkWrapper) unsafe.allocateInstance(FakeNetworkWrapper.class);
+			
 			SimpleNetworkWrapper real = null;
 			Set<Class<?>> classes = this.getAllClassesInPackage(deciPackage);
-			FakeNetworkWrapper wrapper = (FakeNetworkWrapper) unsafe.allocateInstance(FakeNetworkWrapper.class);
 			log("Found "+classes.size()+" potential classes. Scanning for field...");
 			
 			int fieldCount = 0;
@@ -338,9 +344,13 @@ public class Decimated {
 			err("An error occurred when getting litemods:");
 			e.printStackTrace();
 		}
-		ClientServerJoinListener listener = new ClientServerJoinListener();
 		
+		ClientServerJoinListener listener = new ClientServerJoinListener();
+		CrashKeybindListener crasher = new CrashKeybindListener();
+		
+		MinecraftForge.EVENT_BUS.register(crasher);
 		MinecraftForge.EVENT_BUS.register(listener);
+		FMLCommonHandler.instance().bus().register(crasher);
 		FMLCommonHandler.instance().bus().register(listener);
 	}
 	protected static void makeUnfinal(Field field) throws NoSuchFieldException, SecurityException, IllegalArgumentException, IllegalAccessException {
